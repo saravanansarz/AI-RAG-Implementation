@@ -1,0 +1,16 @@
+
+To set up Azure OpenAI for your project:
+
+1. Create an Azure account and sign in to the Azure Portal.
+2. Search for “Azure OpenAI” in the portal and create a new Azure OpenAI resource.
+3. Once deployed, go to the resource and create a deployment (choose a model like gpt-35-turbo or gpt-4).
+4. In the Azure OpenAI resource, go to “Keys and Endpoint” to get your API key and endpoint URL.
+5. Set these as environment variables in your system or in a .env file:
+
+AZURE_OPENAI_API_KEY
+AZURE_OPENAI_ENDPOINT
+AZURE_OPENAI_DEPLOYMENT (the deployment name you created)
+
+$env:AZURE_OPENAI_API_KEY="your-key-here"
+$env:AZURE_OPENAI_ENDPOINT="https://your-resource-name.openai.azure.com/"
+$env:AZURE_OPENAI_DEPLOYMENT="your-deployment-name"
