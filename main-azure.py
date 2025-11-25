@@ -3,15 +3,36 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 import os
 import fitz  # PyMuPDF
-import openai
 import csv
+from dotenv import load_dotenv
+from openai import AzureOpenAI
 
 app = FastAPI()
+ # Get configuration settings 
+load_dotenv()
+azure_oai_endpoint = os.getenv("AZURE_OAI_ENDPOINT")
+azure_oai_key = os.getenv("AZURE_OAI_KEY")
+azure_oai_deployment = os.getenv("AZURE_OAI_DEPLOYMENT")
+azure_search_endpoint = os.getenv("AZURE_SEARCH_ENDPOINT")
+azure_search_key = os.getenv("AZURE_SEARCH_KEY")
+azure_search_index = os.getenv("AZURE_SEARCH_INDEX")
 
-# Set your Azure OpenAI API key and endpoint as environment variables or directly here
-AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY", "<YOUR_AZURE_OPENAI_API_KEY>")
-AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "<YOUR_AZURE_OPENAI_ENDPOINT>")
-AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT", "<YOUR_DEPLOYMENT_NAME>")
+# Initialize the Azure OpenAI client
+client = AzureOpenAI(
+base_url=f"{azure_oai_endpoint}/openai/deployments/{azure_oai_deployment}/extensions",
+api_key=azure_oai_key,
+api_version="2023-09-01-preview")
+# Configure your data source
+extension_config = dict(dataSources = [  
+        { 
+            "type": "AzureCognitiveSearch", 
+            "parameters": { 
+                "endpoint":azure_search_endpoint, 
+                "key": azure_search_key, 
+                "indexName": azure_search_index,
+            }
+        }]
+)
 
 PDF_PATH = "sustainable-finance-impact-report.pdf"
 CSV_PATH = "questions.csv"
@@ -37,26 +58,42 @@ def read_questions(csv_path):
             })
     return questions
 
-def ask_openai(context, question, restrict_values=None, reasoning_for=None):
-    prompt = f"Context: {context}\n\nQuestion: {question}\nAnswer:"
+def ask_openai(question, restrict_values=None, reasoning_for=None):
+    """Ask Azure OpenAI using the OpenAI v1 client.
+
+    Returns the assistant text (string). If the OpenAI client could not be
+    instantiated this returns an error string instead of raising.
+    """
+    prompt = f"Question: {question}"
     if restrict_values:
         prompt += f"\nChoose one of the following: {', '.join(restrict_values)}."
     if reasoning_for:
         prompt += f"\nProvide reasoning for the previous answer: {reasoning_for}"
+
+    if client is None:
+        return "OpenAI client not available (not installed or failed to instantiate)"
+    
+    print(question)
     try:
-        response = openai.ChatCompletion.create(
-            engine=AZURE_OPENAI_DEPLOYMENT,
-            api_key=AZURE_OPENAI_API_KEY,
-            api_base=AZURE_OPENAI_ENDPOINT,
-            api_type="azure",
-            api_version="2023-05-15",
-            messages=[{"role": "system", "content": "You are a helpful assistant."},
-                      {"role": "user", "content": prompt}]
+        response = client.chat.completions.create(
+            model = azure_oai_deployment,
+            temperature = 0.5,
+            max_tokens = 1000,
+            messages = [
+                {"role": "system", "content": "You are a helpful Assistant"},
+                {"role": "user", "content": question}
+            ],
+            extra_body = extension_config
         )
-        answer = response.choices[0].message["content"].strip()
+        # Print response
+        print("Response: " + response.choices[0].message.content + "\n")
+
+        # New OpenAI v1 client returns choices with a message mapping
+        choice = response.choices[0]
+        answer = getattr(choice.message, "content", None) or (choice.get("message") or {}).get("content", "")
+        return str(answer).strip()
     except Exception as e:
-        answer = f"Error: {str(e)}"
-    return answer
+        return f"Error: {str(e)}"
 
 @app.get("/qa-pdf/")
 def qa_pdf():
@@ -80,18 +117,18 @@ def qa_pdf():
         answer = None
         reasoning = None
 
-        if qtype == "dropdown":
-            answer = ask_openai(pdf_text, question, restrict_values=expected_values)
-            # Try to match expected value
-            matched = next((v for v in expected_values if v.lower() in answer.lower()), None)
-            answer = matched if matched else answer
-        elif qtype == "textarea":
-            # For textarea, provide reasoning for previous answer
-            reasoning_for = prev_answer["answer"] if prev_answer else None
-            answer = ask_openai(pdf_text, question, reasoning_for=reasoning_for)
-            reasoning = reasoning_for
-        else:
-            answer = ask_openai(pdf_text, question)
+        # if qtype == "dropdown":
+        #     answer = ask_openai(pdf_text, question, restrict_values=expected_values)
+        #     # Try to match expected value
+        #     matched = next((v for v in expected_values if v.lower() in answer.lower()), None)
+        #     answer = matched if matched else answer
+        # elif qtype == "textarea":
+        #     # For textarea, provide reasoning for previous answer
+        #     reasoning_for = prev_answer["answer"] if prev_answer else None
+        #     answer = ask_openai(pdf_text, question, reasoning_for=reasoning_for)
+        #     reasoning = reasoning_for
+        # else:
+        answer = ask_openai(question)
 
         result = {
             "question": question,
@@ -99,9 +136,9 @@ def qa_pdf():
             "expected_values": expected_values,
             "answer": answer
         }
-        if qtype == "textarea":
-            result["reasoning_for"] = reasoning
+        # if qtype == "textarea":
+        #     result["reasoning_for"] = reasoning
         results.append(result)
-        prev_answer = result
+        # prev_answer = result
 
     return JSONResponse(content={"results": results})
