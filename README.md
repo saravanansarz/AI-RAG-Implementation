@@ -24,3 +24,10 @@ A Python project for Retrieval-Augmented Generation (RAG) with PDF support. This
 
 ---
 Replace this README as the project evolves.
+
+## Java port
+
+This repository also contains a small Java/Spring Boot port in the `java-app` folder which provides the same basic functionality as the python example: a REST endpoint `/qa-pdf/` that will read `questions.csv`, extract text from `sustainable-finance-impact-report.pdf`, and call Azure OpenAI chat completions with a `dataSources` payload.
+
+See `java-app/README.md` for Java-specific build & run instructions.
+
